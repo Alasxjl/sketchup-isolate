@@ -15,7 +15,7 @@ module SuClickIsolate
   unless file_loaded?(__FILE__)
     extension = SketchupExtension.new('Click Isolate', MAIN_FILE)
     extension.description = '点击群组/组件即只显示它并进入编辑；孤立状态保持到你手动退出，退出时恢复其余对象。'
-    extension.version     = '2.2.3'
+    extension.version     = '2.2.4'
     extension.creator     = 'pojia'
     extension.copyright   = '2026'
     Sketchup.register_extension(extension, true)

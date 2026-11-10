@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Click Isolate 2.2.3
+# Click Isolate 2.2.4
 # 点击群组/组件 -> 只显示它并进入编辑；点击裸面/裸边 -> 只显示它所在的连通几何块。
 # 孤立状态粘住：点画面其它位置不会取消孤立；只有手动“退出孤立”才恢复。
 #
@@ -17,7 +17,7 @@ require 'sketchup.rb'
 module SuClickIsolate
 
   PLUGIN_NAME    = 'Click Isolate'.freeze
-  PLUGIN_VERSION = '2.2.3'.freeze
+  PLUGIN_VERSION = '2.2.4'.freeze
   PREF_SECTION   = 'SuClickIsolate'.freeze
 
   # 连通块搜索上限，防止在超大连通模型上把界面拖死
@@ -477,7 +477,10 @@ module SuClickIsolate
 
       picked = model.selection.to_a.select { |e| e && e.valid? }
       if picked.empty?
-        UI.messagebox('请先选中对象。')
+        # 这里绝不能用 UI.messagebox。模态框会截断 SketchUp 的 Windows 消息循环，
+        # 从菜单/工具栏回调里弹出来时主窗口失去响应，表现为“弹个框然后卡死”。
+        # 提示统一走状态栏：不阻塞、不抢焦点、不打断正在进行的操作。
+        Sketchup.set_status_text('Click Isolate：没有选中对象。请先选中，或用工具栏的“点击孤立”直接点')
         return false
       end
 
@@ -488,7 +491,7 @@ module SuClickIsolate
       if picked.size == 1 && groups.size == 1
         inst = groups.first
         unless model.active_entities.include?(inst)
-          UI.messagebox('该对象不在当前编辑上下文中。请先进入它所在的父级，或直接用“点击孤立”工具点它。')
+          Sketchup.set_status_text('Click Isolate：该对象不在当前编辑上下文中，先用“点击孤立”工具点它')
           return false
         end
         return isolate(model, (model.active_path || []).to_a + [inst], false)
@@ -710,12 +713,29 @@ module SuClickIsolate
     cmd_isolate.tooltip         = '点击群组、组件或裸面/裸边：只显示它'
     cmd_isolate.status_bar_text = '点击群组/组件/裸面/裸边孤立；Shift+点击钻到最深层；退出请点“退出孤立”'
 
+    # 菜单/工具栏回调里直接动模型或弹窗，会打断 Windows 的消息分发。
+    # 延后一帧执行，让回调栈先干净地返回，是 SketchUp 插件规避重入卡死的标准做法。
+    # 定时器回调里漏出去的异常会由 SketchUp 自己弹错误框，所以在这里兜住。
     cmd_selection = UI::Command.new('孤立选中对象') do
-      SuClickIsolate.isolate_selection(Sketchup.active_model)
+      UI.start_timer(0, false) do
+        begin
+          SuClickIsolate.isolate_selection(Sketchup.active_model)
+        rescue StandardError => e
+          SuClickIsolate.log(e)
+          Sketchup.set_status_text("Click Isolate：操作失败（#{e.message}）")
+        end
+      end
     end
 
     cmd_exit = UI::Command.new('退出孤立') do
-      SuClickIsolate.exit_isolation(Sketchup.active_model)
+      UI.start_timer(0, false) do
+        begin
+          SuClickIsolate.exit_isolation(Sketchup.active_model)
+        rescue StandardError => e
+          SuClickIsolate.log(e)
+          Sketchup.set_status_text("Click Isolate：退出失败（#{e.message}）")
+        end
+      end
     end
     cmd_exit.small_icon      = File.join(icons, 'exit_24.png')
     cmd_exit.large_icon      = File.join(icons, 'exit_32.png')
